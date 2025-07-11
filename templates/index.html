@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>QBot - Quality Assistant</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="main-layout">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <h2>🧠 QBot</h2>
+      <form action="/new" method="POST">
+        <button type="submit">➕ New Chat</button>
+      </form>
+      <ul id="chatList">
+        {% for cid in chat_ids %}
+          <li class="{{ 'active-chat' if cid == active_id else '' }}">
+            <a href="/switch/{{ cid }}">
+              {{ titles[cid] if titles[cid] else 'Untitled Chat' }}
+            </a>
+            {% if cid == active_id %}
+              <form action="/rename/{{ cid }}" method="POST" style="margin-top: 5px;" onsubmit="event.stopPropagation();">
+                <input type="text" name="title" placeholder="Rename chat..." style="width: 100%; padding: 5px; font-size: 0.8rem;" />
+              </form>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <!-- Chat Panel -->
+    <div class="chat-panel">
+      <div class="chat-box" id="chatBox">
+        {% for q, a, t in history[:-1] %}
+          <div class="message user"><strong>You:</strong> {{ q }}</div>
+          <div class="message bot"><strong>QBot:</strong> {{ a }}</div>
+        {% endfor %}
+
+        {% if current_question %}
+          <div class="message user"><strong>You:</strong> {{ current_question }}</div>
+        {% endif %}
+
+        {% if interpretation %}
+          <div class="message thinking">
+            <strong>🤔 QBot is thinking:</strong>
+            <p>{{ interpretation }}</p>
+          </div>
+        {% endif %}
+
+        {% if answer %}
+          <div class="message final-answer">
+            <strong>✅ QBot's Answer:</strong>
+            <p id="streamedText"></p>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Input Box -->
+      <form method="post" id="chatForm">
+        <div class="input-bar">
+          <input type="text" name="question" id="questionInput" placeholder="Type your question..." autocomplete="off" required value="{{ current_question }}">
+          <button type="submit">Send</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Typing animation for the streamed response
+    document.addEventListener("DOMContentLoaded", () => {
+      const fullText = `{{ answer | safe }}`;
+      const textEl = document.getElementById("streamedText");
+      if (fullText && textEl) {
+        let i = 0;
+        const interval = setInterval(() => {
+          if (i < fullText.length) {
+            textEl.innerHTML += fullText[i++];
+            textEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          } else {
+            clearInterval(interval);
+          }
+        }, 20);
+      }
+    });
+  </script>
+</body>
+</html>
