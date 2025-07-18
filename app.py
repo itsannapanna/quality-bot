@@ -1,10 +1,17 @@
 from flask import Flask, render_template, request, session, redirect, url_for
+from langchain.llms import Cohere
 import cohere
 import os
 import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 from prompt_builder import build_prompt
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.chains.question_answering import load_qa_chain
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+from langchain.retrievers.multi_query import MultiQueryRetriever
 
 # Load environment variables
 load_dotenv()
@@ -14,6 +21,21 @@ app.secret_key = os.urandom(24)
 
 # Initialize Cohere client
 co = cohere.Client(os.getenv("COHERE_API_KEY"))
+
+# Load the embedding model and FAISS index
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+# Load Cohere LLM (or use another)
+llm = Cohere(cohere_api_key="taDSt5JXKgh6LzXpu3h7QMVVdumdjFmcoyy1CifV", temperature=0)
+vectorstore = FAISS.load_local("quality_vector_db", embeddings, allow_dangerous_deserialization=True)
+retriever = MultiQueryRetriever.from_llm(
+    retriever=vectorstore.as_retriever(search_kwargs={"k": 5}),
+    llm=llm  # the same LLM you’re using for querying
+)
+
+# QA chain using LangChain
+qa_chain = load_qa_chain(llm, chain_type="stuff")
+
 
 # Utility: Ensure session has chat storage
 def get_chats():
@@ -44,29 +66,18 @@ def index():
     if request.method == "POST":
         user_question = request.form["question"].strip()
 
-        # Context for LLM prompt
-        conversation_context = "\n".join([
-            f"User: {q}\nBot: {a}" for q, a, _ in history
-        ])
-
-        prompt = build_prompt(user_question=user_question, context=conversation_context)
-
-        # Generate response from Cohere
-        response = co.generate(
-            model="command-r-plus",
-            prompt=prompt,
-            max_tokens=400,
-            temperature=0.6
+                # Use LangChain's QA chain with retriever
+        
+        rag_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            retriever=retriever,
+            chain_type="stuff"
         )
 
-        full_output = response.generations[0].text.strip()
+        result = rag_chain.run(user_question)
+        main_response = result
+        interpretation = "Response generated using custom quality documents."
 
-        # Parse interpretation and answer
-        if "Interpretation:" in full_output and "Response:" in full_output:
-            interpretation = full_output.split("Interpretation:")[1].split("Response:")[0].strip()
-            main_response = full_output.split("Response:")[1].strip()
-        else:
-            main_response = full_output
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
 
