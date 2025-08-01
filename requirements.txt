@@ -1,3 +1,7 @@
 flask
 cohere
+langchain
+langchain-community
+langchain-huggingface
+sentence-transformers
 python-dotenv
