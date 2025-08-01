@@ -15,7 +15,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 # Load the uploaded PDFs
-pdf_paths = ["data/ISO_9001_2015_QMS.pdf", "data/iso 22000.pdf"]
+pdf_paths = ["ISO_9001_2015_QMS.pdf", "iso 22000.pdf","iso14001.pdf","iso18001.pdf"]
 
 pages = []
 for pdf in pdf_paths:

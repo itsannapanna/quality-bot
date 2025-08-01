@@ -1,47 +1,43 @@
-from flask import Flask, render_template, request, session, redirect, url_for, flash
-from langchain_community.llms import Cohere
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain.chains.question_answering import load_qa_chain
-from langchain.chains import RetrievalQA
-from langchain.retrievers.multi_query import MultiQueryRetriever
-from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from dotenv import load_dotenv
-from datetime import datetime
+from flask import Flask, render_template, request, session, redirect, url_for
+from langchain.llms import Cohere
 import cohere
 import os
 import uuid
-from werkzeug.utils import secure_filename
-
-# Custom utility
+from datetime import datetime
+from dotenv import load_dotenv
 from prompt_builder import build_prompt
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.chains.question_answering import load_qa_chain
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+from langchain.retrievers.multi_query import MultiQueryRetriever
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
-UPLOAD_FOLDER = "data"
-ALLOWED_EXTENSIONS = {'pdf'}
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# LLM and vector setup
-cohere_api_key = os.getenv("COHERE_API_KEY")
-co = cohere.Client(cohere_api_key)
+# Initialize Cohere client
+co = cohere.Client(os.getenv("COHERE_API_KEY"))
+
+# Load the embedding model and FAISS index
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-vectorstore = FAISS.load_local("quality_vector_db", embeddings, allow_dangerous_deserialization=True)
-llm = Cohere(cohere_api_key=cohere_api_key, temperature=0)
 
+# Load Cohere LLM (or use another)
+llm = Cohere(cohere_api_key="taDSt5JXKgh6LzXpu3h7QMVVdumdjFmcoyy1CifV", temperature=0)
+vectorstore = FAISS.load_local("quality_vector_db", embeddings, allow_dangerous_deserialization=True)
 retriever = MultiQueryRetriever.from_llm(
     retriever=vectorstore.as_retriever(search_kwargs={"k": 5}),
-    llm=llm
+    llm=llm  # the same LLM you’re using for querying
 )
+
+# QA chain using LangChain
 qa_chain = load_qa_chain(llm, chain_type="stuff")
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# Utility: Ensure session has chat storage
 def get_chats():
     if "chats" not in session:
         session["chats"] = {}
@@ -53,6 +49,7 @@ def get_chats():
 def index():
     chats, titles = get_chats()
 
+    # Start new chat if needed
     if "active_chat" not in session or session["active_chat"] not in chats:
         new_id = str(uuid.uuid4())
         chats[new_id] = []
@@ -66,9 +63,11 @@ def index():
     main_response = ""
     user_question = ""
 
-    if request.method == "POST" and "question" in request.form:
+    if request.method == "POST":
         user_question = request.form["question"].strip()
 
+                # Use LangChain's QA chain with retriever
+        
         rag_chain = RetrievalQA.from_chain_type(
             llm=llm,
             retriever=retriever,
@@ -79,17 +78,19 @@ def index():
         main_response = result
         interpretation = "Response generated using custom quality documents."
 
+
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        # Save to session history
         history.append((user_question, main_response, timestamp))
         chats[active_id] = history
         session["chats"] = chats
         session.modified = True
 
+        # Auto-title chat after first message
         if len(history) == 1 and user_question:
             titles[active_id] = user_question[:25] + ("..." if len(user_question) > 25 else "")
             session["titles"] = titles
-
-    messages = list(flash._get_flashed_messages()) if hasattr(flash, '_get_flashed_messages') else []
 
     return render_template(
         "index.html",
@@ -99,8 +100,7 @@ def index():
         current_question=user_question,
         chat_ids=list(chats.keys()),
         titles=titles,
-        active_id=active_id,
-        messages=messages
+        active_id=active_id
     )
 
 @app.route("/new", methods=["POST"])
@@ -129,33 +129,6 @@ def rename_chat(chat_id):
         titles[chat_id] = new_title
         session["titles"] = titles
         session.modified = True
-    return redirect(url_for("index"))
-
-@app.route("/upload", methods=["POST"])
-def upload_pdf():
-    if 'pdf' not in request.files:
-        flash('No file part')
-        return redirect(url_for('index'))
-
-    file = request.files['pdf']
-    if file.filename == '':
-        flash('No selected file')
-        return redirect(url_for('index'))
-
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-
-        loader = PyPDFLoader(file_path)
-        pages = loader.load()
-        chunks = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=200).split_documents(pages)
-        vectorstore.add_documents(chunks)
-
-        flash(f"Successfully uploaded and indexed {filename}")
-        return redirect(url_for("index"))
-
-    flash("Invalid file type")
     return redirect(url_for("index"))
 
 @app.route("/reset", methods=["POST"])
